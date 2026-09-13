@@ -1,0 +1,49 @@
+name: Docker build check (no publishing)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - requirements.txt
+      - .github/workflows/docker-build-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build locally for this runner architecture
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: moneyprinterturbo-build-check:local
+          provenance: false
+          sbom: false
+          build-args: |
+            DOCKER_BUILD_MIRROR=default
+            PIP_USE_OFFICIAL=1
+      - name: Verify runtime dependencies without network or user data
+        run: |
+          docker run --rm --network none --entrypoint sh moneyprinterturbo-build-check:local -ec '
+            test "$(. /etc/os-release; printf %s "$VERSION_CODENAME")" = bookworm
+            python -c "import sys; assert sys.version_info[:2] == (3, 11); import streamlit"
+            git --version
+            ffmpeg -version
+          '
